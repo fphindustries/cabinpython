@@ -1,21 +1,16 @@
-#!/usr/bin/env python
-from Adafruit_SHT31 import *
-from datetime import datetime
+#!/usr/bin/python3
 
-SHT31_ADDRESS = 0x44
+import time
+import board
+import busio
+import adafruit_sht31d
 
-def read_env():
-    sensor = SHT31(address = SHT31_ADDRESS)
+i2c = busio.I2C(board.SCL, board.SDA)
+sensor = adafruit_sht31d.SHT31D(i2c)
 
-    celsius, humidity = sensor.read_temperature_humidity()
-    fahrenheit = (9.0/5.0) * celsius + 32
+celsius = sensor.temperature
+fahrenheit = (9.0/5.0) * celsius + 32
+humidity = sensor.relative_humidity
 
-    return celsius, fahrenheit, humidity
+print(f"sht31 celsius={celsius},fahrenheit={fahrenheit},humidity={humidity}")
 
-
-def main():  
-    celsius, fahrenheit, humidity =read_env()
-    print("sht31,addr={} celsius={},fahrenheit={},humidity={}".format(SHT31_ADDRESS, celsius, fahrenheit, humidity))
-
-if __name__ == '__main__':
-    main()
