@@ -12,5 +12,7 @@ celsius = sensor.temperature
 fahrenheit = (9.0/5.0) * celsius + 32
 humidity = sensor.relative_humidity
 
-print(f"sht31 celsius={celsius},fahrenheit={fahrenheit},humidity={humidity}")
+#print(f"sht31 celsius={celsius},fahrenheit={fahrenheit},humidity={humidity}")
+
+print('bmp280 celsius={celsius},fahrenheit={fahrenheit},humidity={humidity}'.format(celsius=celsius, fahrenheit=fahrenheit,humidity=humidity))
 

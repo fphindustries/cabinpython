@@ -24,4 +24,5 @@ hPa = pascals * .01
 inHg = pascals * 0.029529983071445
 fahrenheit = (9.0/5.0) * celsius + 32
 
-print(f'bmp280 celsius={celsius},fahrenheit={fahrenheit},hPa={hPa},inHg={inHg}')
+print('bmp280 celsius={celsius},fahrenheit={fahrenheit},hPa={hPa},inHg={inHg}'.format(celsius=celsius, fahrenheit=fahrenheit,hPa=hPa, inHg=inHg))
+
