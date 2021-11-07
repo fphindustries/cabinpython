@@ -6,9 +6,10 @@ import busio
 import adafruit_sht31d
 import adafruit_bmp3xx
 from adafruit_ina219 import ADCResolution, BusVoltageRange, INA219
+from w1thermsensor import W1ThermSensor, Unit
 
 i2c = busio.I2C(board.SCL, board.SDA)
-ow_file="/mnt/1wire/28.0EFE79971103/temperature"
+#ow_file="/mnt/1wire/28.0EFE79971103/temperature"
 
 def read_bmp388():
     try:
@@ -28,12 +29,12 @@ def read_bmp388():
 
 def read_ds18b20():
     try:
-        file = open(ow_file, "r")
-        celsius = float(file.read())
-        file.close()
-        fahrenheit = (9.0/5.0) * celsius + 32
+        sensor = W1ThermSensor()
+        temperature_in_all_units = sensor.get_temperatures([
+            Unit.DEGREES_C,
+            Unit.DEGREES_F])
 
-        return {'celsius':celsius, 'fahrenheit':fahrenheit};
+        return {'celsius':temperature_in_all_units[0], 'fahrenheit':temperature_in_all_units[1]};
     except:
         return {'celsius':None, 'fahrenheit':None}
 
@@ -69,7 +70,7 @@ def main():
     ds18b20 = read_ds18b20()
     sht31 = read_sht31()
 
-    print(f"sensors case_c={bmp388['celsius']},case_f={bmp388['fahrenheit']},hPa={bmp388['hPa']},inHg={bmp388['inHg']},ext_c={ds18b20['celsius']},ext_f={ds18b20['fahrenheit']},int_c={sht31['celsius']},int_f={sht31['fahrenheit']},humidity={sht31['humidity']},pi_v={ina219['voltage']},pi_i={ina219['current']},pi_w={ina219['power']}")
+    print(f"sensors case_c={bmp388['celsius']},case_f={bmp388['fahrenheit']},hPa={bmp388['hPa']},inHg={bmp388['inHg']},ext_c={ds18b20['celsius']},ext_f={ds18b20['fahrenheit']},int_c={sht31['celsius']},int_f={sht31['fahrenheit']},humidity={sht31['humidity']}")
     #print("sensors case_c={},case_f={},hPa={},inHg={},ext_c={},ext_f={},int_c={},int_f={},humidity={}".format(bmp280['celsius'],bmp280['fahrenheit'],bmp280['hPa'],bmp280['inHg'],ds18b20['celsius'],ds18b20['fahrenheit'],sht31['celsius'],sht31['fahrenheit'],sht31['humidity']))
 
 if __name__ == '__main__':

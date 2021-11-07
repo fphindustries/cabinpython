@@ -27,10 +27,10 @@ stream.seek(0)
 image = Image.open(stream)
 extrema = image.convert("L").getextrema()
 if extrema[1] > 100:
-  print extrema[1]
+  print(extrema[1])
   filename = '{:%Y-%m-%d-%H-%M}.jpg'.format(datetime.now())
   localfilename = '/opt/cabinpython/images/' + filename
-  print filename
+  print(filename)
 
   image.save(localfilename, "JPEG", quality=90, optimize=True)
 

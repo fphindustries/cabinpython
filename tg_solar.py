@@ -3,7 +3,7 @@ import minimalmodbus
 
 def main():
     try:
-        instrument = minimalmodbus.Instrument('/dev/ttyAMA0', 10)
+        instrument = minimalmodbus.Instrument('/dev/ttyAMA1', 10)
 
         registers = instrument.read_registers(4114, 29)
 

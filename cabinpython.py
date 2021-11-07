@@ -1,32 +1,36 @@
-import keyboard
+#import keyboard
 import time
+import board
+import adafruit_character_lcd.character_lcd_rgb_i2c as character_lcd
 
-def printHi():
-    print('Hi')
+lcd_columns = 16
+lcd_rows = 2
 
-def printBravo():
-    print('Bravo')
-
-def printCharlie():
-    print('Charlie')
+#lcd = None
 
 def alphaAlpha():
-    print('Alpha-Alpha')
+    lcd.clear()
+    lcd.message='Alpha-Alpha'
 
 def alphaBravo():
-    print('Alpha-Bravo')
+    lcd.clear()
+    lcd.message='Alpha-Bravo'
 
 def bravoAlpha():
-    print('Bravo-Alpha')
+    lcd.clear()
+    lcd.message='Bravo-Alpha'
 
 def bravoBravo():
-    print('Bravo-Bravo')
+    lcd.clear()
+    lcd.message='Bravo-Bravo'
 
 def charlieAlpha():
-    print('Charlie-Alpha')
+    lcd.clear()
+    lcd.message='Charlie-Alpha'
 
 def charlieBravo():
-    print('Charlie-Bravo')
+    lcd.clear()
+    lcd.message='Charlie-Bravo'
 
 NONE=0
 LEFT=1
@@ -49,6 +53,17 @@ menus = [
 ]
 
 def main():
+    # Initialise I2C bus.
+    i2c = board.I2C()  # uses board.SCL and board.SDA
+
+    # Initialise the LCD class
+    global lcd
+    lcd = character_lcd.Character_LCD_RGB_I2C(i2c, lcd_columns, lcd_rows)
+
+    lcd.clear()
+    # Set LCD color to red
+    lcd.color = [100, 0, 0]
+
     menuIndex = 0
     subMenuIndex = 0
     activeMenu = menus[menuIndex]
@@ -62,23 +77,23 @@ def main():
         changed = False
 
         currentPress=NONE
-        if keyboard.is_pressed("a"):
+        if lcd.left_button:
             currentPress=LEFT
-        elif keyboard.is_pressed("d"):
+        elif lcd.right_button:
             currentPress=RIGHT
-        elif keyboard.is_pressed("w"):
+        elif lcd.up_button:
             currentPress=UP
-        elif keyboard.is_pressed("s"):
+        elif lcd.down_button:
             currentPress=DOWN
-        elif keyboard.is_pressed(" "):
-            currentPress=SELECT
-        elif keyboard.is_pressed("q"):
+#        elif keyboard.is_pressed(" ":
+#            currentPress=SELECT
+        elif lcd.select_button:
             currentPress=QUIT
-        
+
         if currentPress != lastPress:
             pressed=True
             lastPress = currentPress
-        
+
         if pressed:
             if currentPress == LEFT:
                 menuIndex -= 1
@@ -101,17 +116,20 @@ def main():
                 subMenuIndex += 1
                 if subMenuIndex >= len(activeMenu):
                     subMenuIndex = 0
-                changed=True      
-            elif currentPress == QUIT:
                 changed=True
+            elif currentPress == QUIT:
+                #changed=True
                 running = False
-        
+                lcd.clear()
+                #lcd.backlight = False
+                lcd.color = [0, 0, 0]
+
         if changed:
             activeMenu = menus[menuIndex]
             activeSubMenu = activeMenu[subMenuIndex]
             activeSubMenu()
 
         time.sleep(.05)
-    
+
 if __name__ == '__main__':
     main()
