@@ -81,8 +81,8 @@ def idle():
     while True:
         global cur_screen
         cur_screen = cur_screen % len(screens)
-        lcd.noBacklight()
         lcd.noDisplay()
+        lcd.noBacklight()
         # Block until wake-up
         # TODO: This prevents SIGINT (Ctrl-C) from working, look into event callback
         GPIO.wait_for_edge(6, GPIO.FALLING)
