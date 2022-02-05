@@ -9,6 +9,7 @@ from liquidcrystal_i2c import LiquidCrystal_I2C
 from influxdb import InfluxDBClient
 import configparser
 import psutil
+import os
 
 BUTTON_GPIO=6
 BUTTON_UP = 3
@@ -47,7 +48,7 @@ def clear_lcd():
     lcd.printline(2,f"{' ':>20}")
     lcd.printline(3,f"{' ':>20}")
 
-def solarScreen():
+def solarScreen(button):
     clear_lcd()
 
     rows = list(influxClient.query('select * from solar where time > now() - 1h group by * order by desc limit 1;').get_points())
@@ -64,7 +65,7 @@ def solarScreen():
     lcd.printline(2, f"AH:{AmpHours} kWH:{kWHours}")
     lcd.printline(3, f"Watts:{watts}")
 
-def tempScreen():
+def tempScreen(button):
     clear_lcd()
     lcd.printline(0, f"Environment")
     rows = list(influxClient.query('select * from sensors where time > now() - 1h group by * order by desc limit 1;').get_points())
@@ -78,7 +79,7 @@ def tempScreen():
     lcd.printline(2, f"Humidity:{humidity:.2f}%")
     lcd.printline(3, f"Pressure:{inHg:.2f}inHg")
 
-def systemScreen():
+def systemScreen(button):
     clear_lcd()
     load = psutil.getloadavg()
     memory = psutil.virtual_memory()
@@ -93,10 +94,27 @@ def systemScreen():
     lcd.printline(2, f"Mem {mem_used:.2f} of {mem_total:.2f}")
     lcd.printline(3, f"Dsk {disk_used:.2f} of {disk_total:.2f}")
 
+def emulatorScreen(button):
+    clear_lcd()
+    lcd.printline(0, f"EmulationStation")
+
+    if button == BUTTON_CENTER:
+        os.popen("/usr/bin/emulationstation")
+
+def rebootScreen(button):
+    clear_lcd()
+    lcd.printline(0, f"Reboot")
+
+    if button == BUTTON_CENTER:
+        os.system("sudo reboot")
+        lcd.printline(0, "Rebooting...")
+
 screens = [
     solarScreen,
     tempScreen,
-    systemScreen
+    systemScreen,
+    emulatorScreen,
+    rebootScreen
 ]
 
 def button_pressed_callback(channel):
@@ -120,7 +138,7 @@ def button_pressed_callback(channel):
     lcd.display()
     lcd.backlight()
 
-    screens[cur_screen]()
+    screens[cur_screen](button)
     timer.cancel()
     timer = Timer(LCD_ON_TIME, screen_off)
     timer.start()
