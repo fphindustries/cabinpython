@@ -10,6 +10,7 @@ from influxdb import InfluxDBClient
 import configparser
 import psutil
 import os
+import subprocess
 
 BUTTON_GPIO=6
 BUTTON_UP = 3
@@ -99,7 +100,9 @@ def emulatorScreen(button):
     lcd.printline(0, f"EmulationStation")
 
     if button == BUTTON_CENTER:
-        os.popen("/usr/bin/emulationstation")
+        env = os.environ.copy()
+        env["TERM"] = "xterm-256color"
+        subprocess.Popen("/usr/bin/emulationstation", shell=True, env=env)
 
 def rebootScreen(button):
     clear_lcd()
