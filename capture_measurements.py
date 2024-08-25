@@ -4,6 +4,7 @@ import mysql.connector
 import board
 import adafruit_sht31d
 import minimalmodbus
+import argparse
 
 def get_sht31():
     """
@@ -153,7 +154,12 @@ def insert_measurement_to_database(current_time, config, measurements):
 if __name__ == "__main__":
     current_time = datetime.datetime.now().replace(second=0, microsecond=0)
     config = configparser.ConfigParser()
-    config.read('config.ini')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', help='Path to the configuration file')
+    args = parser.parse_args()
+
+    config_file = args.config if args.config else 'config.ini'
+    config.read(config_file)
 
     sht31 = get_sht31()
     solar_data = get_solar_data(config)

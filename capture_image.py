@@ -5,6 +5,7 @@ from datetime import date,datetime,timedelta,timezone
 from dateutil import tz
 from suntime import Sun
 import configparser
+import argparse
 
 def get_sunrise_sunset(latitude, longitude):
   """
@@ -25,28 +26,34 @@ def get_sunrise_sunset(latitude, longitude):
     ss = sun.get_sunset_time(today + timedelta(days=1))
   return sr, ss
 
+def main():
+  config = configparser.ConfigParser()
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--config', help='Path to the configuration file')
+  args = parser.parse_args()
+  config_file = args.config if args.config else 'config.ini'
+  config.read(config_file)
 
-config = configparser.ConfigParser()
-config.read('config.ini')
+  latitude = float(config['Location']['Latitude'])
+  longitude = float(config['Location']['Longitude'])
+  sunrise, sunset = get_sunrise_sunset(latitude, longitude)
 
-latitude = float(config['Location']['Latitude'])
-longitude = float(config['Location']['Longitude'])
-sunrise, sunset = get_sunrise_sunset(latitude, longitude)
+  now = datetime.now(timezone.utc)
 
-now = datetime.now(timezone.utc)
+  if now > sunrise and now < sunset:
+    filename = '{:%Y-%m-%d-%H-%M}.jpg'.format(datetime.now())
+    localfilename = config['Images']['directory'] + filename
 
-if now > sunrise and now < sunset:
-  filename = '{:%Y-%m-%d-%H-%M}.jpg'.format(datetime.now())
-  localfilename = config['Images']['directory'] + filename
+    picam2 = Picamera2()
+    config = picam2.create_still_configuration()
+    picam2.configure(config)
 
-  picam2 = Picamera2()
-  config = picam2.create_still_configuration()
-  picam2.configure(config)
+    picam2.start()
 
-  picam2.start()
+    picam2.capture_file(localfilename)
+    picam2.stop()
+  else:
+    print("it's dark out")
 
-  picam2.capture_file(localfilename)
-  picam2.stop()
-else:
-  print("it's dark out")
-
+if __name__ == "__main__":
+  main()
