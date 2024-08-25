@@ -1,45 +1,52 @@
 #!/usr/bin/python
 
-from io import BytesIO
-from time import sleep
-from picamera import PiCamera
-from picamera import Color
-from PIL import Image
-from datetime import datetime
-from paramiko import SSHClient
-from scp import SCPClient
+from picamera2 import Picamera2
+from datetime import date,datetime,timedelta,timezone
+from dateutil import tz
+from suntime import Sun
+import configparser
+
+def get_sunrise_sunset(latitude, longitude):
+  """
+  Get the sunrise and sunset times for a given latitude and longitude.
+
+  Args:
+    latitude (float): The latitude of the location.
+    longitude (float): The longitude of the location.
+
+  Returns:
+    tuple: A tuple containing the sunrise and sunset times as datetime objects.
+  """
+  sun = Sun(latitude, longitude)
+  today = date.today()
+  sr = sun.get_sunrise_time(today)
+  ss = sun.get_sunset_time(today)
+  if ss < sr:
+    ss = sun.get_sunset_time(today + timedelta(days=1))
+  return sr, ss
 
 
-# Create the in-memory stream
-stream = BytesIO()
-camera = PiCamera()
-camera.resolution = (3280,2464)
-#camera.start_preview()
-#sleep(3)
+config = configparser.ConfigParser()
+config.read('config.ini')
 
-camera.annotate_foreground = Color('black')
-camera.annotate_text = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-camera.awb_mode ='sunlight'
-sleep(2)
-camera.capture(stream, format='jpeg')
-# "Rewind" the stream to the beginning so we can read its content
-stream.seek(0)
-image = Image.open(stream)
-extrema = image.convert("L").getextrema()
-if extrema[1] > 100:
-  print(extrema[1])
+latitude = float(config['Location']['Latitude'])
+longitude = float(config['Location']['Longitude'])
+sunrise, sunset = get_sunrise_sunset(latitude, longitude)
+
+now = datetime.now(timezone.utc)
+
+if now > sunrise and now < sunset:
   filename = '{:%Y-%m-%d-%H-%M}.jpg'.format(datetime.now())
-  localfilename = '/opt/cabinpython/images/' + filename
-  print(filename)
+  localfilename = config['Images']['directory'] + filename
 
-  image.save(localfilename, "JPEG", quality=90, optimize=True)
+  picam2 = Picamera2()
+  config = picam2.create_still_configuration()
+  picam2.configure(config)
 
-  ssh = SSHClient()
-  ssh.load_system_host_keys()
-  ssh.connect('cabinpi.fphi.us')
+  picam2.start()
 
-  # SCPCLient takes a paramiko transport as an argument
-  scp = SCPClient(ssh.get_transport())
+  picam2.capture_file(localfilename)
+  picam2.stop()
+else:
+  print("it's dark out")
 
-  scp.put(localfilename, '/opt/images/' + filename)
-  scp.close()
