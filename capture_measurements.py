@@ -1,16 +1,123 @@
 import datetime
 import configparser
 import mysql.connector
-import busio
 import board
-#Aimport bitbangio
-#import adafruit_bitbangio as bitbangio
+import os
+import logging
 import adafruit_sht31d
 import minimalmodbus
 import argparse
 import requests
 import magnum
+import ssl
+import smtplib
+import time
+import json
+from pathlib import Path
+from email.message import EmailMessage
 from magnum.magnum import Magnum
+
+ALERT_STATE_FILE = Path('/opt/cabinpython/last_battery_alert.json')
+
+def _read_alert_state():
+    if ALERT_STATE_FILE.exists():
+        try:
+            return json.loads(ALERT_STATE_FILE.read_text())
+        except Exception:
+            logging.exception("Error in _read_alert_state")
+
+            return {}
+    return {}
+
+def _write_alert_state(state: dict):
+    try:
+        ALERT_STATE_FILE.write_text(json.dumps(state))
+    except Exception:
+        logging.exception("Failed to write alert state file")
+
+def send_email(
+    smtp_server: str, smtp_port: int, smtp_user: str, smtp_pass: str,
+    from_addr: str, to_addr: str, subject: str, body: str
+) -> bool:
+
+    # Parse comma-separated addresses
+    recipients = [addr.strip() for addr in to_addr.split(",") if addr.strip()]
+
+    msg = EmailMessage()
+    msg["From"] = from_addr
+    msg["To"] = ", ".join(recipients)   # Header only
+    msg["Subject"] = subject
+    msg.set_content(body)
+
+    context = ssl.create_default_context()
+
+    try:
+        with smtplib.SMTP_SSL(smtp_server, smtp_port, context=context) as server:
+            server.login(smtp_user, smtp_pass)
+
+            # IMPORTANT: explicitly pass recipient list
+            server.send_message(msg, from_addr=from_addr, to_addrs=recipients)
+
+        logging.info("Email sent to %s", recipients)
+        return True
+
+    except Exception:
+        logging.exception("Failed to send email to %s", recipients)
+        return False
+
+def notify_if_low_battery(config, measurements):
+
+    try:
+        low_thr = float(config.get('Notify','battery_low_threshold', fallback='12.3'))
+        recover_thr = float(config.get('Notify','battery_recovery_threshold', fallback='12.8'))
+        cooldown_min = int(config.get('Notify','alert_cooldown_minutes', fallback='30'))
+        to_addr = config.get('Notify','to_addr')
+        from_addr = config.get('Notify','from_addr')
+        smtp_server = config.get('Notify','smtp_server')
+        smtp_port = config.getint('Notify','smtp_port', fallback=465)
+        smtp_user = config.get('Notify','smtp_user')
+        smtp_pass = os.getenv('SMTP_PASS') or config.get('Notify','smtp_pass', fallback=None)
+
+        # choose which voltage measurement to use (adjust key if needed)
+        volts = measurements.get('dispavgVbatt')
+        if volts is None:
+            return
+
+        state = _read_alert_state()
+        last_alert_ts = state.get('last_alert_ts')  # epoch seconds
+        alerted = state.get('alerted', False)
+
+        now_ts = int(time.time())
+        should_send = False
+
+        if not alerted and volts < low_thr:
+            should_send = True
+        elif alerted:
+            # only clear alert when it recovers above recovery threshold
+            if volts >= recover_thr:
+                # clear alert state so future lows can alert again
+                subject = f"Battery alert cleared: {volts:.2f} V"
+                body = f"Battery voltage is {volts:.2f} V at {datetime.datetime.now().isoformat()}.\n\nDetails: {measurements}"
+                sent = send_email(smtp_server, smtp_port, smtp_user, smtp_pass, from_addr, to_addr, subject, body)                
+                state['alerted'] = False
+                state['last_alert_ts'] = None
+                _write_alert_state(state)
+                logging.info("Battery recovered to %s, cleared alert state", volts)
+                return
+            # else still alerted: but consider cooldown - allow re-send if cooldown passed (optional)
+            if last_alert_ts and (now_ts - last_alert_ts) >= (cooldown_min * 60):
+                should_send = True
+
+        if should_send:
+            subject = f"Battery alert: {volts:.2f} V"
+            body = f"Battery voltage is {volts:.2f} V at {datetime.datetime.now().isoformat()}.\n\nDetails: {measurements}"
+            sent = send_email(smtp_server, smtp_port, smtp_user, smtp_pass, from_addr, to_addr, subject, body)
+            if sent:
+                state['alerted'] = True
+                state['last_alert_ts'] = now_ts
+                _write_alert_state(state)
+    except Exception:
+        logging.exception("Error in notify_if_low_battery")
 
 def get_sht31():
     """
@@ -28,8 +135,8 @@ def get_sht31():
         # Convert int_c from Celsius to Fahrenheit
         int_f = (int_c * 9/5) + 32
         return {'int_c': int_c, 'int_f': int_f, 'humidity': humidity}
-    except Exception as e:
-        print("Error reading from SHT31 sensor:", str(e))
+    except Exception:
+        logging.exception("Error reading from SHT31 sensor")
         return {'int_c': None, 'int_f': None, 'humidity': None}
 
 def get_inverter_data(config):
@@ -56,8 +163,8 @@ def get_inverter_data(config):
             'Invertervdc': inverter['data']['vdc']
         }
         return data
-    except Exception as e:
-        print("Error getting inverter data:", str(e))
+    except Exception:
+        logging.exception("Error getting inverter data")
         return {
             'InverterOn': None,
             'InverterMode': None,
@@ -110,8 +217,8 @@ def get_solar_data(config):
 
         return data
 
-    except Exception as e:
-        print("Error getting solar data:", str(e))
+    except Exception:
+        logging.exception("Error getting solar data")
         return {
             'dispavgVbatt': None,
             'dispavgVpv': None,
@@ -160,56 +267,74 @@ def insert_measurement_to_database(current_time, config, measurements):
             password=password
         )
 
-        # Insert the sht31 dictionary into the measurements table
+        # Insert the measurements into the measurements table
         cursor = mydb.cursor()
-        sql = "INSERT INTO measurements (Date, AbsorbTime, AmpHours, EqualizeTime, FloatTime, HighestVinputLog, IbattDisplay, NiteMinutesNoPwr, PvInputCurrent, VocLastMeasured, BatteryState, ChargeState, ClassicState, DispavgVbatt, DispavgVpv, kWHours, Watts, int_c, int_f, humidity, Ext_F, inHg, wind_avg, wind_gust, wind_direction, illuminance, uv, solar_radiation, rain, avg_strike_distance, strike_count, weather_battery, daily_accumulation, Ext_humidity, InverterOn, InverterMode, InverterFault, InverterVACOut, InverterAACOut) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        sql = ("INSERT INTO measurements (Date, AbsorbTime, AmpHours, EqualizeTime, FloatTime, "
+               "HighestVinputLog, IbattDisplay, NiteMinutesNoPwr, PvInputCurrent, VocLastMeasured, "
+               "BatteryState, ChargeState, ClassicState, DispavgVbatt, DispavgVpv, kWHours, Watts, "
+               "int_c, int_f, humidity, Ext_F, inHg, wind_avg, wind_gust, wind_direction, illuminance, "
+               "uv, solar_radiation, rain, avg_strike_distance, strike_count, weather_battery, "
+               "daily_accumulation, Ext_humidity, InverterOn, InverterMode, InverterFault, InverterVACOut, InverterAACOut) "
+               "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+
+        # Use .get() to avoid KeyError if some sensor data is missing
         values = (
             current_time,
-            measurements['AbsorbTime'],
-            measurements['AmpHours'],
-            measurements['EqualizeTime'],
-            measurements['FloatTime'],
-            measurements['HighestVinputLog'],
-            measurements['IbattDisplay'],
-            measurements['NiteMinutesNoPwr'],
-            measurements['PvInputCurrent'],
-            measurements['VocLastMeasured'],
-            measurements['batteryState'],
-            measurements['chargeState'],
-            measurements['classicState'],
-            measurements['dispavgVbatt'],
-            measurements['dispavgVpv'],
-            measurements['kWHours'],
-            measurements['watts'],
-            measurements['int_c'],
-            measurements['int_f'],
-            measurements['humidity'],
-            measurements['ext_temp'],
-            measurements['pressure'],
-            measurements['wind_avg'],
-            measurements['wind_gust'],
-            measurements['wind_direction'],
-            measurements['illuminance'],
-            measurements['uv'],
-            measurements['solar_radiation'],
-            measurements['rain'],
-            measurements['avg_strike_distance'],
-            measurements['strike_count'],
-            measurements['weather_battery'],
-            measurements['daily accumulation'],
-            measurements['ext_humidity'],
-            measurements['InverterOn'],
-            measurements['InverterMode'],
-            measurements['InverterFault'],
-            measurements['InverterVACOut'],
-            measurements['InverterAACOut']
+            measurements.get('AbsorbTime'),
+            measurements.get('AmpHours'),
+            measurements.get('EqualizeTime'),
+            measurements.get('FloatTime'),
+            measurements.get('HighestVinputLog'),
+            measurements.get('IbattDisplay'),
+            measurements.get('NiteMinutesNoPwr'),
+            measurements.get('PvInputCurrent'),
+            measurements.get('VocLastMeasured'),
+            measurements.get('batteryState'),
+            measurements.get('chargeState'),
+            measurements.get('classicState'),
+            measurements.get('dispavgVbatt'),
+            measurements.get('dispavgVpv'),
+            measurements.get('kWHours'),
+            measurements.get('watts'),
+            measurements.get('int_c'),
+            measurements.get('int_f'),
+            measurements.get('humidity'),
+            measurements.get('ext_temp'),
+            measurements.get('pressure'),
+            measurements.get('wind_avg'),
+            measurements.get('wind_gust'),
+            measurements.get('wind_direction'),
+            measurements.get('illuminance'),
+            measurements.get('uv'),
+            measurements.get('solar_radiation'),
+            measurements.get('rain'),
+            measurements.get('avg_strike_distance'),
+            measurements.get('strike_count'),
+            measurements.get('weather_battery'),
+            measurements.get('daily_accumulation'),
+            measurements.get('ext_humidity'),
+            measurements.get('InverterOn'),
+            measurements.get('InverterMode'),
+            measurements.get('InverterFault'),
+            measurements.get('InverterVACOut'),
+            measurements.get('InverterAACOut')
         )
         cursor.execute(sql, values)
         mydb.commit()
-        cursor.close()
 
-    except Exception as e:
-        print("Error inserting measurements into the database:", str(e))
+    except Exception:
+        logging.exception("Error inserting measurements into the database")
+    finally:
+        try:
+            if 'cursor' in locals() and cursor:
+                cursor.close()
+        except Exception:
+            logging.exception("Error closing cursor")
+        try:
+            if 'mydb' in locals() and mydb:
+                mydb.close()
+        except Exception:
+            logging.exception("Error closing database connection")
 
 
 def call_json_api(url):
@@ -223,11 +348,11 @@ def call_json_api(url):
         dict: The JSON response from the API.
     """
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         response.raise_for_status()
         return response.json()
-    except requests.exceptions.RequestException as e:
-        print("Error calling JSON API:", str(e))
+    except requests.exceptions.RequestException:
+        logging.exception("Error calling JSON API %s", url)
         return None
 
 def mps_to_mph(mps):
@@ -307,10 +432,15 @@ def get_weather(config):
     """
     try:
         device = config.get('Weather', 'device')
-        token = config.get('Weather', 'token')
+        token = config.get('Weather', 'token', fallback=os.getenv('WEATHER_TOKEN'))
 
-        token = '5407c1ea-bc93-4960-98f8-488f3b227620'
+        if not token:
+            raise RuntimeError('Weather token not set in config or WEATHER_TOKEN')
+
         weather = call_json_api(f'https://swd.weatherflow.com/swd/rest/observations/device/{device}?token={token}')
+        if not weather or 'obs' not in weather or not weather['obs']:
+            raise RuntimeError('Invalid weather response')
+
         obs = weather['obs'][0]
         conditions = {
             'wind_avg' : mps_to_mph(obs[2]),
@@ -326,13 +456,13 @@ def get_weather(config):
             'avg_strike_distance': km_to_miles(obs[14]),
             'strike_count' : obs[15],
             'weather_battery': obs[16],
-            'daily accumulation': mm_to_inches(obs[18])
+            'daily_accumulation': mm_to_inches(obs[18])
         }
 
         return conditions
 
     except Exception as e:
-        print("Error getting weather data:", str(e))
+        logging.exception("Error getting weather data")
         return {
             'wind_avg' : None,
             'wind_gust' : None,
@@ -347,28 +477,33 @@ def get_weather(config):
             'avg_strike_distance': None,
             'strike_count' : None,
             'weather_battery': None,
-            'daily accumulation': None
+            'daily_accumulation': None
         }
         
-if __name__ == "__main__":
-    current_time = datetime.datetime.now().replace(second=0, microsecond=0)
-    config = configparser.ConfigParser()
+def main(argv=None):
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+    args = None
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='Path to the configuration file')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    config_file = args.config if args.config else 'config.ini'
+    config_file = args.config if args and args.config else 'config.ini'
+    config = configparser.ConfigParser()
     config.read(config_file)
+
+    current_time = datetime.datetime.now().replace(second=0, microsecond=0)
 
     sht31 = get_sht31()
     solar_data = get_solar_data(config)
-    
     conditions = get_weather(config)
-
     inverter_data = get_inverter_data(config)
 
     # Merge sht31 and solar_data into a single dictionary
     all_data = {**sht31, **solar_data, **conditions, **inverter_data}
-    #print(all_data)
-    # Insert the SHT31 measurements into the database
+    # Insert the measurements into the database
     insert_measurement_to_database(current_time, config, all_data)
+    notify_if_low_battery(config, all_data)
+
+
+if __name__ == "__main__":
+    main()
