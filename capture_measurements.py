@@ -1,7 +1,10 @@
 import datetime
 import configparser
 import mysql.connector
+import busio
 import board
+#Aimport bitbangio
+#import adafruit_bitbangio as bitbangio
 import adafruit_sht31d
 import minimalmodbus
 import argparse
@@ -49,7 +52,7 @@ def get_inverter_data(config):
             'InverterMode': inverter['data']['mode'],
             'InverterFault': inverter['data']['fault'],
             'InverterVACOut': inverter['data']['VACout'],
-            'InverterAACOut': inverter['data']['AACout'],
+            'InverterAACOut': inverter['data']['adc'],
             'Invertervdc': inverter['data']['vdc']
         }
         return data
