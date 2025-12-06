@@ -92,3 +92,4 @@ ENV/
 *.ini
 
 images/
+last_battery_alert.json

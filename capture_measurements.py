@@ -504,6 +504,14 @@ def main(argv=None):
     insert_measurement_to_database(current_time, config, all_data)
     notify_if_low_battery(config, all_data)
 
+    # Attempt to sync all unsynced records to remote API
+    # This stops on first failure since the script runs every 5 minutes
+    try:
+        from sync_common import sync_unsynced_records
+        sync_unsynced_records(config, batch_size=10)
+    except Exception:
+        logging.exception("Error syncing to remote API (will retry on next run)")
+
 
 if __name__ == "__main__":
     main()
