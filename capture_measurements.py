@@ -1,3 +1,5 @@
+#!/opt/cabinpython/env/bin/python3
+
 import datetime
 import configparser
 import mysql.connector
@@ -68,15 +70,25 @@ def send_email(
 def notify_if_low_battery(config, measurements):
 
     try:
+        # Check if Notify section exists
+        if not config.has_section('Notify'):
+            logging.debug("Notify section not configured, skipping battery alerts")
+            return
+
         low_thr = float(config.get('Notify','battery_low_threshold', fallback='12.3'))
         recover_thr = float(config.get('Notify','battery_recovery_threshold', fallback='12.8'))
         cooldown_min = int(config.get('Notify','alert_cooldown_minutes', fallback='30'))
-        to_addr = config.get('Notify','to_addr')
-        from_addr = config.get('Notify','from_addr')
-        smtp_server = config.get('Notify','smtp_server')
+        to_addr = config.get('Notify','to_addr', fallback=None)
+        from_addr = config.get('Notify','from_addr', fallback=None)
+        smtp_server = config.get('Notify','smtp_server', fallback=None)
         smtp_port = config.getint('Notify','smtp_port', fallback=465)
-        smtp_user = config.get('Notify','smtp_user')
+        smtp_user = config.get('Notify','smtp_user', fallback=None)
         smtp_pass = os.getenv('SMTP_PASS') or config.get('Notify','smtp_pass', fallback=None)
+
+        # Validate required fields
+        if not all([to_addr, from_addr, smtp_server, smtp_user, smtp_pass]):
+            logging.warning("Notify section incomplete, skipping battery alerts")
+            return
 
         # choose which voltage measurement to use (adjust key if needed)
         volts = measurements.get('dispavgVbatt')
@@ -321,9 +333,13 @@ def insert_measurement_to_database(current_time, config, measurements):
         )
         cursor.execute(sql, values)
         mydb.commit()
+        logging.debug("Successfully inserted measurement record for %s", current_time)
 
+    except mysql.connector.Error as e:
+        logging.error("Database error inserting measurements: %s", str(e))
+        logging.debug("Failed values: %s", values)
     except Exception:
-        logging.exception("Error inserting measurements into the database")
+        logging.exception("Unexpected error inserting measurements into the database")
     finally:
         try:
             if 'cursor' in locals() and cursor:
@@ -481,36 +497,65 @@ def get_weather(config):
         }
         
 def main(argv=None):
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-    args = None
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='Path to the configuration file')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose debug logging')
     args = parser.parse_args(argv)
+
+    # Set logging level based on verbosity
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(level=log_level, format='%(asctime)s %(levelname)s %(message)s')
 
     config_file = args.config if args and args.config else 'config.ini'
     config = configparser.ConfigParser()
     config.read(config_file)
 
     current_time = datetime.datetime.now().replace(second=0, microsecond=0)
+    logging.info("Starting measurement capture at %s", current_time)
 
+    # Collect sensor data
+    logging.debug("Reading SHT31 sensor...")
     sht31 = get_sht31()
+
+    logging.debug("Reading solar charge controller...")
     solar_data = get_solar_data(config)
+
+    logging.debug("Reading weather data...")
     conditions = get_weather(config)
+
+    logging.debug("Reading inverter data...")
     inverter_data = get_inverter_data(config)
 
-    # Merge sht31 and solar_data into a single dictionary
+    # Merge all sensor data into a single dictionary
     all_data = {**sht31, **solar_data, **conditions, **inverter_data}
+
+    # Log key metrics for monitoring
+    logging.info("Battery: %.2fV, Solar: %dW, Indoor: %.1fF/%.0f%%, Outdoor: %.1fF",
+                 all_data.get('dispavgVbatt', 0.0) or 0.0,
+                 all_data.get('watts', 0) or 0,
+                 all_data.get('int_f', 0.0) or 0.0,
+                 all_data.get('humidity', 0.0) or 0.0,
+                 all_data.get('ext_temp', 0.0) or 0.0)
+
     # Insert the measurements into the database
     insert_measurement_to_database(current_time, config, all_data)
+
+    # Check for low battery and send alerts
     notify_if_low_battery(config, all_data)
 
     # Attempt to sync all unsynced records to remote API
     # This stops on first failure since the script runs every 5 minutes
     try:
         from sync_common import sync_unsynced_records
-        sync_unsynced_records(config, batch_size=10)
+        total_synced, total_failed = sync_unsynced_records(config, batch_size=10)
+        if total_synced > 0:
+            logging.info("Synced %d records to remote API", total_synced)
+        if total_failed > 0:
+            logging.warning("Failed to sync %d records to remote API", total_failed)
     except Exception:
         logging.exception("Error syncing to remote API (will retry on next run)")
+
+    logging.info("Measurement capture completed")
 
 
 if __name__ == "__main__":
