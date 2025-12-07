@@ -141,8 +141,8 @@ def convert_measurement_to_api_format(record: Dict) -> Dict:
         "vocLastMeasured": record.get('VocLastMeasured'),
         "watts": record.get('Watts'),
         # Indoor sensor data
-        "intF": record.get('int_f'),
-        "humidity": record.get('humidity'),
+        "intF": record.get('Int_F'),
+        "humidity": record.get('Humidity'),
         # External weather data
         "avgStrikeDistance": record.get('avg_strike_distance'),
         "dailyAccumulation": record.get('daily_accumulation'),
