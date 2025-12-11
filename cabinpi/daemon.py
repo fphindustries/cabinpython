@@ -13,6 +13,7 @@ from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from cabinpi.core.models import SensorReading, Event
+from cabinpi.core.event_detector import EventDetector
 from cabinpi.managers import SensorManager, OutputManager
 from cabinpi.signal_handler import SignalHandler
 
@@ -53,6 +54,7 @@ class SensorDaemon:
         # Create managers (initialized later)
         self.sensor_manager: Optional[SensorManager] = None
         self.output_manager: Optional[OutputManager] = None
+        self.event_detector: Optional[EventDetector] = None
 
         # Create signal handler
         self.signal_handler = SignalHandler(
@@ -87,6 +89,12 @@ class SensorDaemon:
             # Initialize output manager first (for event logging)
             self.output_manager = OutputManager(self.config)
             await self.output_manager.initialize()
+
+            # Initialize event detector
+            self.event_detector = EventDetector(
+                config=self.config,
+                on_event=self._handle_event
+            )
 
             # Initialize sensor manager (with callbacks to outputs)
             self.sensor_manager = SensorManager(
@@ -291,11 +299,17 @@ class SensorDaemon:
         """
         Handle a sensor reading from SensorManager.
 
-        Routes the reading to output manager for storage.
+        Routes the reading to output manager for storage and
+        processes it through event detector.
 
         Args:
             reading: SensorReading to process
         """
+        # Process through event detector
+        if self.event_detector:
+            self.event_detector.process_reading(reading)
+
+        # Write to outputs
         if self.output_manager:
             # Schedule the async write
             asyncio.create_task(self.output_manager.write_reading(reading))
@@ -376,5 +390,9 @@ class SensorDaemon:
                 }
                 for status in await self.output_manager.get_health_status()
             ]
+
+        # Get active alerts
+        if self.event_detector:
+            health["active_alerts"] = self.event_detector.get_active_alerts()
 
         return health
