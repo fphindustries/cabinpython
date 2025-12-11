@@ -1,0 +1,120 @@
+# CabinPython v2 Configuration
+# Copy this file to config.yaml and customize for your environment
+
+daemon:
+  polling_interval: 300           # Global default (5 minutes)
+  enable_watchdog: true
+  log_level: INFO
+
+plugins:
+  sensors:
+    sht31:
+      enabled: true
+      type: polling
+      module: cabinpi.plugins.sensors.sht31
+      interval: 300
+
+    solar_controller:
+      enabled: true
+      type: polling
+      module: cabinpi.plugins.sensors.solar_modbus
+      interval: 300
+      config:
+        port: /dev/serial/by-id/usb-FTDI_USB_Serial_Converter_FTDY7VMG-if00-port0
+        slave_id: 10
+        baudrate: 9600
+
+    inverter:
+      enabled: true
+      type: polling
+      module: cabinpi.plugins.sensors.inverter
+      interval: 300
+      config:
+        port: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_B0027QYY-if00-port0
+
+    weather:
+      enabled: true
+      type: api
+      module: cabinpi.plugins.sensors.weatherflow
+      interval: 600  # Every 10 minutes
+      config:
+        device_id: ${WEATHER_DEVICE}
+        token: ${WEATHER_TOKEN}
+
+  outputs:
+    database:
+      enabled: true
+      type: measurement_storage
+      module: cabinpi.plugins.outputs.mariadb_storage
+      config:
+        host: localhost
+        database: cabinpi
+        username: cabinpi
+        password: ${DB_PASSWORD}
+
+    event_log:
+      enabled: true
+      type: event_log
+      module: cabinpi.plugins.outputs.mariadb_events
+      config:
+        host: localhost
+        database: cabinpi
+        username: cabinpi
+        password: ${DB_PASSWORD}
+
+    remote_sync:
+      enabled: true
+      type: measurement_storage
+      module: cabinpi.plugins.outputs.cloudflare_sync
+      config:
+        api_url: ${CF_API_URL}
+        client_id: ${CF_CLIENT_ID}
+        client_secret: ${CF_CLIENT_SECRET}
+        batch_size: 10
+
+    email_alerts:
+      enabled: true
+      type: notification
+      module: cabinpi.plugins.outputs.email_notifier
+      config:
+        smtp_server: smtp.gmail.com
+        smtp_port: 465
+        smtp_user: ${SMTP_USER}
+        smtp_pass: ${SMTP_PASS}
+        from_addr: ${SMTP_USER}
+        to_addrs:
+          - ${ALERT_EMAIL_1}
+          - ${ALERT_EMAIL_2}
+
+# Event and alarm rules
+events:
+  battery_low:
+    sensor: solar_controller
+    field: dispavgVbatt
+    condition: below
+    threshold: 12.0
+    recovery_threshold: 12.8
+    cooldown_minutes: 1440
+    severity: critical
+    notify: true
+
+  battery_recovered:
+    sensor: solar_controller
+    field: dispavgVbatt
+    condition: above
+    threshold: 12.8
+    depends_on: battery_low
+    severity: info
+    notify: true
+
+  charge_state_change:
+    sensor: solar_controller
+    field: chargeState
+    condition: changed
+    severity: info
+    log_only: true
+
+# Circuit breaker configuration
+circuit_breaker:
+  failure_threshold: 5
+  recovery_timeout: 60

@@ -1,0 +1,36 @@
+# CabinPython v2 - Daemon-based Modular Monitoring System
+# Python Dependencies
+
+# Core async and scheduling
+apscheduler>=3.11.0
+
+# systemd integration
+systemd-python>=235
+systemd-watchdog>=1.0.1
+
+# Fault tolerance
+pybreaker>=1.0.1
+tenacity>=8.2.0
+
+# Configuration
+PyYAML>=6.0
+python-dotenv>=1.0.0
+
+# Database
+mysql-connector-python>=8.0
+
+# Sensors (NEW)
+smbus2>=0.4.3              # SHT31 (I2C)
+pymodbus>=3.11.0           # Solar (Modbus)
+pymagnum>=2.0.8            # Inverter
+httpx>=0.27.0              # Weather API
+
+# Utilities
+python-dateutil
+suntime
+picamera2
+
+# Development
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
