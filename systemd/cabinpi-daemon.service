@@ -1,0 +1,57 @@
+[Unit]
+Description=CabinPython v2 Monitoring Daemon
+Documentation=https://github.com/fphindustries/cabinpython
+After=network.target mariadb.service
+Wants=network.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+
+# Service user and group
+User=ckent
+Group=ckent
+
+# Working directory
+WorkingDirectory=/opt/cabinpython
+
+# Environment
+Environment="PATH=/opt/cabinpython/env/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=-/opt/cabinpython/.env
+
+# Start command
+ExecStart=/opt/cabinpython/env/bin/python /opt/cabinpython/daemon.py --config /opt/cabinpython/config.yaml --log-level INFO
+
+# Reload configuration on SIGHUP
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+
+# Watchdog
+WatchdogSec=120s
+
+# Resource limits
+MemoryMax=256M
+CPUQuota=50%
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+# File access (needed for sensors)
+# Grant access to I2C, serial devices
+SupplementaryGroups=dialout i2c gpio
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cabinpi-daemon
+
+# Startup timeout
+TimeoutStartSec=60s
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=multi-user.target

@@ -283,17 +283,99 @@ class SensorDaemon:
         """
         Reload configuration and restart managers.
 
-        TODO: Full implementation requires config reloading logic.
-        For now, just log that reload was requested.
+        Reloads config.yaml and reinitializes all managers with new configuration.
+        Useful for adding/removing sensors or changing thresholds without restart.
         """
-        logger.warning("Configuration reload requested but not yet implemented")
-        self._handle_event(Event(
-            event_type="config_reload_requested",
-            severity="warning",
-            message="Configuration reload not yet implemented"
-        ))
-        # Reset flag
+        logger.info("Reloading configuration")
         self._reload_requested = False
+
+        try:
+            # Reload configuration from file
+            from pathlib import Path
+            import yaml
+            from dotenv import load_dotenv
+            import os
+            import re
+
+            # Reload environment variables
+            env_path = Path(__file__).parent.parent / ".env"
+            if env_path.exists():
+                load_dotenv(env_path, override=True)
+
+            # Reload YAML config
+            config_file = Path(__file__).parent.parent / "config.yaml"
+            if not config_file.exists():
+                logger.error("config.yaml not found, cannot reload")
+                return
+
+            with open(config_file, 'r') as f:
+                new_config = yaml.safe_load(f)
+
+            # Substitute environment variables
+            def substitute_env_vars(obj):
+                if isinstance(obj, dict):
+                    return {key: substitute_env_vars(value) for key, value in obj.items()}
+                elif isinstance(obj, list):
+                    return [substitute_env_vars(item) for item in obj]
+                elif isinstance(obj, str):
+                    pattern = re.compile(r'\$\{([^}]+)\}')
+                    matches = pattern.findall(obj)
+                    for var_name in matches:
+                        var_value = os.environ.get(var_name, "")
+                        obj = obj.replace(f"${{{var_name}}}", var_value)
+                    return obj
+                else:
+                    return obj
+
+            new_config = substitute_env_vars(new_config)
+            self.config = new_config
+
+            # Shutdown and reinitialize managers
+            logger.info("Shutting down managers for reload")
+
+            if self.sensor_manager:
+                await self.sensor_manager.shutdown()
+
+            if self.output_manager:
+                await self.output_manager.shutdown()
+
+            # Reinitialize with new config
+            logger.info("Reinitializing with new configuration")
+
+            self.output_manager = OutputManager(self.config)
+            await self.output_manager.initialize()
+
+            self.event_detector = EventDetector(
+                config=self.config,
+                on_event=self._handle_event
+            )
+
+            self.sensor_manager = SensorManager(
+                scheduler=self.scheduler,
+                config=self.config,
+                on_reading=self._handle_reading,
+                on_event=self._handle_event,
+            )
+            await self.sensor_manager.initialize()
+
+            # Restart sensor polling
+            await self.sensor_manager.start()
+
+            self._handle_event(Event(
+                event_type="config_reloaded",
+                severity="info",
+                message="Configuration reloaded successfully"
+            ))
+            logger.info("Configuration reload complete")
+
+        except Exception as e:
+            logger.exception(f"Error reloading configuration: {e}")
+            self._handle_event(Event(
+                event_type="config_reload_failed",
+                severity="error",
+                message=f"Configuration reload failed: {e}",
+                notify=True
+            ))
 
     def _handle_reading(self, reading: SensorReading) -> None:
         """
