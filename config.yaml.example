@@ -41,6 +41,26 @@ plugins:
         device_id: ${WEATHER_DEVICE}
         token: ${WEATHER_TOKEN}
 
+    # DS18B20 1-wire temperature sensors (optional)
+    # Multiple sensors can be configured with different device IDs
+    ds18b20_outdoor:
+      enabled: false
+      type: polling
+      module: cabinpi.plugins.sensors.ds18b20
+      interval: 60
+      config:
+        device_id: "28-0000123456ab"  # Auto-detect if not provided
+        label: "outdoor"
+
+    ds18b20_water:
+      enabled: false
+      type: polling
+      module: cabinpi.plugins.sensors.ds18b20
+      interval: 60
+      config:
+        device_id: "28-0000123456cd"
+        label: "water_tank"
+
   outputs:
     database:
       enabled: true
