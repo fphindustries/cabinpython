@@ -61,6 +61,44 @@ plugins:
         device_id: "28-0000123456cd"
         label: "water_tank"
 
+    # SHT45 high-accuracy temperature/humidity sensor (optional)
+    sht45:
+      enabled: false
+      type: polling
+      module: cabinpi.plugins.sensors.sht45
+      interval: 300
+      config:
+        i2c_bus: 1
+        i2c_address: 0x44
+        repeatability: "high"  # high, medium, or low
+
+    # INA228 power monitor sensors (optional)
+    # Example: Battery monitor
+    ina228_battery:
+      enabled: false
+      type: polling
+      module: cabinpi.plugins.sensors.ina228
+      interval: 60
+      config:
+        i2c_bus: 1
+        i2c_address: 0x40
+        shunt_resistor: 0.015  # 15 milliohm
+        max_current: 10.0      # 10A max expected
+        label: "battery"
+
+    # Example: Solar panel monitor
+    ina228_solar:
+      enabled: false
+      type: polling
+      module: cabinpi.plugins.sensors.ina228
+      interval: 60
+      config:
+        i2c_bus: 1
+        i2c_address: 0x41      # Different address via A0 jumper
+        shunt_resistor: 0.010  # 10 milliohm
+        max_current: 15.0      # 15A max expected
+        label: "solar_panel"
+
   outputs:
     database:
       enabled: true
