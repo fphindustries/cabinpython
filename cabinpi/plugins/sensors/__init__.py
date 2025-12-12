@@ -6,7 +6,8 @@ This package contains sensor implementations for various hardware devices:
 - SHT45: High-accuracy temperature and humidity (I2C)
 - INA228: High-precision power monitor (I2C)
 - Solar Controller: Modbus charge controller data
-- Inverter: Magnum inverter status and measurements
+- Inverter: Magnum inverter status and measurements (RS-232 via pymagnum)
+- MagnumRS485: Magnum inverter network with control (RS-485 native protocol)
 - WeatherFlow: External weather station data via API
 - DS18B20: Temperature sensor (1-wire)
 """
@@ -16,6 +17,7 @@ from cabinpi.plugins.sensors.sht45 import SHT45Sensor
 from cabinpi.plugins.sensors.ina228 import INA228Sensor
 from cabinpi.plugins.sensors.solar_modbus import SolarModbusSensor
 from cabinpi.plugins.sensors.inverter import InverterSensor
+from cabinpi.plugins.sensors.magnum_rs485 import MagnumRS485Sensor
 from cabinpi.plugins.sensors.weatherflow import WeatherFlowSensor
 from cabinpi.plugins.sensors.ds18b20 import DS18B20Sensor
 
@@ -25,6 +27,7 @@ __all__ = [
     "INA228Sensor",
     "SolarModbusSensor",
     "InverterSensor",
+    "MagnumRS485Sensor",
     "WeatherFlowSensor",
     "DS18B20Sensor",
 ]

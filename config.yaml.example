@@ -32,6 +32,19 @@ plugins:
       config:
         port: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_B0027QYY-if00-port0
 
+    # Magnum RS-485 Network Driver (alternative to inverter above)
+    # Provides full network access and inverter control capabilities
+    magnum_rs485:
+      enabled: false
+      type: polling
+      module: cabinpi.plugins.sensors.magnum_rs485
+      interval: 5  # Fast polling (5 seconds) for responsive control
+      config:
+        port: /dev/ttyUSB0  # USB RS-485 converter
+        baudrate: 19200
+        timeout: 0.5
+        remote_revision: 10  # 1.0 = acts as ME-RC remote
+
     weather:
       enabled: true
       type: api
