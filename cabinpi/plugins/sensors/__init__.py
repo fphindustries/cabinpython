@@ -10,24 +10,12 @@ This package contains sensor implementations for various hardware devices:
 - MagnumRS485: Magnum inverter network with control (RS-485 native protocol)
 - WeatherFlow: External weather station data via API
 - DS18B20: Temperature sensor (1-wire)
+
+Note: Sensors are loaded dynamically by the plugin loader.
+This __init__.py file is for documentation only.
 """
 
-from cabinpi.plugins.sensors.sht31 import SHT31Sensor
-from cabinpi.plugins.sensors.sht45 import SHT45Sensor
-from cabinpi.plugins.sensors.ina228 import INA228Sensor
-from cabinpi.plugins.sensors.solar_modbus import SolarModbusSensor
-from cabinpi.plugins.sensors.inverter import InverterSensor
-from cabinpi.plugins.sensors.magnum_rs485 import MagnumRS485Sensor
-from cabinpi.plugins.sensors.weatherflow import WeatherFlowSensor
-from cabinpi.plugins.sensors.ds18b20 import DS18B20Sensor
+# Do NOT import sensors here - they are loaded dynamically
+# This prevents import errors when optional dependencies are missing
 
-__all__ = [
-    "SHT31Sensor",
-    "SHT45Sensor",
-    "INA228Sensor",
-    "SolarModbusSensor",
-    "InverterSensor",
-    "MagnumRS485Sensor",
-    "WeatherFlowSensor",
-    "DS18B20Sensor",
-]
+__all__ = []

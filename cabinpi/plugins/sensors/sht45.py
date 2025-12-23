@@ -192,7 +192,11 @@ class SHT45Sensor:
             await asyncio.sleep(self._measure_delay)
 
             # Read 6 bytes: temp MSB, temp LSB, temp CRC, hum MSB, hum LSB, hum CRC
-            data = self._bus.read_i2c_block_data(self._i2c_address, 0x00, 6)
+            # Note: SHT45 doesn't use register addressing for data read, just I2C read
+            from smbus2 import i2c_msg
+            msg = i2c_msg.read(self._i2c_address, 6)
+            self._bus.i2c_rdwr(msg)
+            data = list(msg)
 
             # Validate temperature CRC
             temp_data = bytes([data[0], data[1]])

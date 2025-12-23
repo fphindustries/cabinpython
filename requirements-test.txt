@@ -1,0 +1,27 @@
+# CabinPython v2 - Minimal Testing Requirements
+# Install only what's needed for testing SHT45, INA228, DS18B20
+
+# Core async and scheduling (required for daemon)
+apscheduler>=3.10.0
+
+# Configuration (required for daemon)
+PyYAML>=6.0
+python-dotenv>=1.0.0
+
+# I2C sensors (SHT45, INA228)
+smbus2>=0.4.3
+
+# Optional: Fault tolerance (can work without)
+# pybreaker>=1.0.1
+# tenacity>=8.2.0
+
+# Not needed for basic testing:
+# systemd-python>=235        # Only needed for production systemd integration
+# systemd-watchdog>=1.0.1    # Only needed for production
+# mysql-connector-python>=8.0 # Only needed for database output
+# pymodbus>=3.11.0           # Only needed for solar controller
+# pymagnum>=2.0.8            # Only needed for inverter
+# httpx>=0.27.0              # Only needed for weather API
+# python-dateutil            # Only needed for specific features
+# suntime                    # Only needed for sunrise/sunset
+# picamera2                  # Only needed for camera

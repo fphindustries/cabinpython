@@ -1,0 +1,156 @@
+# CabinPython v2 Test Configuration
+# Configuration for testing sensors without database
+#
+# Usage:
+#   python daemon.py --config config_test.yaml
+
+daemon:
+  polling_interval: 10           # Test with 10 second intervals
+  enable_watchdog: false          # Disable watchdog for testing
+  log_level: INFO                 # Use INFO or DEBUG for detailed logs
+
+plugins:
+  sensors:
+    # SHT45 Temperature/Humidity Sensor (I2C)
+    sht45:
+      enabled: true
+      type: polling
+      module: cabinpi.plugins.sensors.sht45
+      interval: 10  # Read every 10 seconds
+      config:
+        i2c_bus: 1
+        i2c_address: 0x44
+        repeatability: "high"  # high, medium, or low
+
+    # INA228 Power Monitor (I2C)
+    ina228_battery:
+      enabled: true
+      type: polling
+      module: cabinpi.plugins.sensors.ina228
+      interval: 10  # Read every 10 seconds
+      config:
+        i2c_bus: 1
+        i2c_address: 0x40
+        shunt_resistor: 0.015  # 15 milliohm
+        max_current: 10.0      # 10A max expected
+        label: "battery"
+
+    # DS18B20 1-Wire Temperature Sensor
+    ds18b20_outdoor:
+      enabled: true
+      type: polling
+      module: cabinpi.plugins.sensors.ds18b20
+      interval: 10  # Read every 10 seconds
+      config:
+        # device_id: "28-xxxxxxxxxxxx"  # Auto-detect if not specified
+        label: "outdoor"
+
+    # Additional sensors (disabled for basic test)
+    sht31:
+      enabled: false
+      type: polling
+      module: cabinpi.plugins.sensors.sht31
+      interval: 300
+
+    solar_controller:
+      enabled: false
+      type: polling
+      module: cabinpi.plugins.sensors.solar_modbus
+      interval: 300
+
+    inverter:
+      enabled: false
+      type: polling
+      module: cabinpi.plugins.sensors.inverter
+      interval: 300
+
+    magnum_rs485:
+      enabled: false
+      type: polling
+      module: cabinpi.plugins.sensors.magnum_rs485
+      interval: 5
+
+    weather:
+      enabled: false
+      type: api
+      module: cabinpi.plugins.sensors.weatherflow
+      interval: 600
+
+  outputs:
+    # File Logger - JSON Lines format
+    file_logger_jsonl:
+      enabled: true
+      type: measurement_storage
+      module: cabinpi.plugins.outputs.file_logger
+      config:
+        file_path: "/tmp/sensor_readings.jsonl"
+        format: "jsonl"       # JSON lines (one object per line)
+        pretty: false         # Compact JSON
+        append: true          # Append to existing file
+        max_size_mb: 10       # Rotate after 10MB
+
+    # File Logger - Pretty JSON (for viewing)
+    file_logger_json:
+      enabled: true
+      type: measurement_storage
+      module: cabinpi.plugins.outputs.file_logger
+      config:
+        file_path: "/tmp/sensor_readings_pretty.json"
+        format: "json"        # JSON array
+        pretty: true          # Pretty-printed
+        append: true          # Append to existing
+        max_size_mb: 10       # Rotate after 10MB
+
+    # File Logger - CSV format (for spreadsheets)
+    file_logger_csv:
+      enabled: true
+      type: measurement_storage
+      module: cabinpi.plugins.outputs.file_logger
+      config:
+        file_path: "/tmp/sensor_readings.csv"
+        format: "csv"         # Comma-separated values
+        append: true          # Append to existing
+        max_size_mb: 10       # Rotate after 10MB
+
+    # Database outputs (disabled for testing)
+    database:
+      enabled: false
+      type: measurement_storage
+      module: cabinpi.plugins.outputs.mariadb_storage
+
+    event_log:
+      enabled: false
+      type: event_log
+      module: cabinpi.plugins.outputs.mariadb_events
+
+    remote_sync:
+      enabled: false
+      type: measurement_storage
+      module: cabinpi.plugins.outputs.cloudflare_sync
+
+    email_alerts:
+      enabled: false
+      type: notification
+      module: cabinpi.plugins.outputs.email_notifier
+
+# Event detection (optional for testing)
+events:
+  # Example: High temperature alert
+  high_temperature:
+    sensor: sht45
+    field: temp_c
+    condition: above
+    threshold: 30.0
+    severity: warning
+    notify: false  # Don't email during testing
+    message: "Temperature high: {value}°C"
+
+  # Example: Low voltage alert
+  low_voltage:
+    sensor: ina228_battery
+    field: bus_voltage_v
+    condition: below
+    threshold: 11.5
+    severity: warning
+    notify: false
+    message: "Battery voltage low: {value}V"

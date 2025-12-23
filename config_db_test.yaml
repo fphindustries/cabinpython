@@ -1,0 +1,122 @@
+# CabinPython v2 Configuration - Database Test
+# Test configuration for MariaDB integration
+
+daemon:
+  name: "CabinPython v2 (DB Test)"
+  log_level: INFO
+  health_check_interval: 30
+
+plugins:
+  sensors:
+    # SHT45 temperature/humidity sensor
+    sht45:
+      enabled: true
+      type: polling
+      module: cabinpi.plugins.sensors.sht45
+      interval: 10
+      config:
+        i2c_bus: 1
+        i2c_address: 0x44
+        repeatability: high  # high, medium, low
+
+    # INA228 power monitor (battery)
+    ina228_battery:
+      enabled: true
+      type: polling
+      module: cabinpi.plugins.sensors.ina228
+      interval: 10
+      config:
+        i2c_bus: 1
+        i2c_address: 0x40
+        shunt_resistor: 0.015  # 15 milliohm
+        max_current: 10.0      # 10A max expected
+        label: "battery"
+
+    # DS18B20 1-wire temperature sensor
+    ds18b20_outdoor:
+      enabled: true
+      type: polling
+      module: cabinpi.plugins.sensors.ds18b20
+      interval: 10
+      config:
+        device_id: auto  # Auto-detect first DS18B20
+        label: "outdoor"
+
+    # Disabled sensors
+    sht31:
+      enabled: false
+    solar_controller:
+      enabled: false
+    inverter:
+      enabled: false
+    magnum_rs485:
+      enabled: false
+    weather:
+      enabled: false
+
+  outputs:
+    # MariaDB measurement storage (NEW - TESTING)
+    database:
+      enabled: true
+      type: measurement_storage
+      module: cabinpi.plugins.outputs.mariadb_storage
+      config:
+        host: localhost
+        database: cabinpi
+        username: cabinpi
+        password: ${DB_PASSWORD}
+        table: measurements_v2
+
+    # MariaDB event log (NEW - TESTING)
+    event_log:
+      enabled: true
+      type: event_log
+      module: cabinpi.plugins.outputs.mariadb_events
+      config:
+        host: localhost
+        database: cabinpi
+        username: cabinpi
+        password: ${DB_PASSWORD}
+
+    # File logger (keep for comparison)
+    file_logger_jsonl:
+      enabled: true
+      type: measurement_storage
+      module: cabinpi.plugins.outputs.file_logger
+      config:
+        file_path: /tmp/sensor_readings.jsonl
+        format: jsonl
+        append: true
+
+    # Disabled outputs
+    file_logger_json:
+      enabled: false
+    file_logger_csv:
+      enabled: false
+    remote_sync:
+      enabled: false
+    email_alerts:
+      enabled: false
+
+# Event detection rules
+events:
+  rules:
+    high_temperature:
+      sensor_id: sht45
+      field: temp_c
+      condition: above
+      threshold: 30.0
+      duration: 300
+      cooldown: 3600
+      notify: true
+      message: "Indoor temperature is too high"
+
+    low_voltage:
+      sensor_id: ina228_battery
+      field: bus_voltage_v
+      condition: below
+      threshold: 11.5
+      duration: 60
+      cooldown: 1800
+      notify: true
+      message: "Battery voltage is critically low"

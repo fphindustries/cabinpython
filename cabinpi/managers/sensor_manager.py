@@ -211,8 +211,10 @@ class SensorManager:
         health = self.health_status[sensor_id]
 
         try:
-            # Call sensor read through circuit breaker
-            reading = await breaker.call_async(plugin.read)
+            # Call sensor read directly
+            # NOTE: Circuit breaker disabled due to pybreaker async issues
+            # Manual failure tracking via health_status instead
+            reading = await plugin.read()
 
             # Update health status
             health.last_success = datetime.now()
@@ -250,10 +252,18 @@ class SensorManager:
         except Exception as e:
             # Unexpected error during read
             logger.exception(f"Error reading sensor '{sensor_id}': {e}")
+
             health.failure_count += 1
             health.last_failure = datetime.now()
-            health.status = "degraded"
-            health.message = str(e)
+
+            # Manual circuit breaker logic - disable sensor after threshold
+            if health.failure_count >= self.failure_threshold:
+                health.status = "failed"
+                health.message = f"Failed {health.failure_count} times"
+                logger.error(f"Sensor '{sensor_id}' failed {health.failure_count} times, marking as failed")
+            else:
+                health.status = "degraded"
+                health.message = str(e)
 
             self._emit_event(Event(
                 event_type="sensor_read_error",
@@ -291,12 +301,23 @@ class SensorManager:
                 message=f"Sensor '{sensor_id}' circuit breaker closed"
             ))
 
-        breaker = CircuitBreaker(
-            fail_max=self.failure_threshold,
-            timeout_duration=self.recovery_timeout,
-            name=f"sensor_{sensor_id}",
-            listeners=[on_open, on_close]
-        )
+        # Create circuit breaker with appropriate parameter name
+        # (pybreaker API changed from timeout_duration to reset_timeout)
+        try:
+            breaker = CircuitBreaker(
+                fail_max=self.failure_threshold,
+                reset_timeout=self.recovery_timeout,
+                name=f"sensor_{sensor_id}",
+                listeners=[on_open, on_close]
+            )
+        except TypeError:
+            # Fallback for older pybreaker versions
+            breaker = CircuitBreaker(
+                fail_max=self.failure_threshold,
+                timeout_duration=self.recovery_timeout,
+                name=f"sensor_{sensor_id}",
+                listeners=[on_open, on_close]
+            )
 
         return breaker
 

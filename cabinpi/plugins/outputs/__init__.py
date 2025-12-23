@@ -6,16 +6,13 @@ This package contains output implementations for various destinations:
 - MariaDB Events: Log events and alarms to database
 - Cloudflare Sync: Sync measurements to remote API
 - Email Notifier: Send email alerts for critical events
+- File Logger: Write measurements to files (JSON/CSV) for testing
+
+Note: Outputs are loaded dynamically by the plugin loader.
+This __init__.py file is for documentation only.
 """
 
-from cabinpi.plugins.outputs.mariadb_storage import MariaDBStorageOutput
-from cabinpi.plugins.outputs.mariadb_events import MariaDBEventsOutput
-from cabinpi.plugins.outputs.cloudflare_sync import CloudflareSyncOutput
-from cabinpi.plugins.outputs.email_notifier import EmailNotifierOutput
+# Do NOT import outputs here - they are loaded dynamically
+# This prevents import errors when optional dependencies are missing
 
-__all__ = [
-    "MariaDBStorageOutput",
-    "MariaDBEventsOutput",
-    "CloudflareSyncOutput",
-    "EmailNotifierOutput",
-]
+__all__ = []
