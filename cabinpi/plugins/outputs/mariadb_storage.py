@@ -104,14 +104,48 @@ class MariaDBStorageOutput:
             'weather_battery': 'outdoor_station_battery',
         },
 
-        # Magnum inverter
+        # Magnum inverter (continuous monitoring with aggregation)
         'inverter': {
             'InverterOn': 'inverter_on',
+            'ChargerOn': 'charger_on',
             'InverterMode': 'inverter_mode',
+            'InverterModeName': 'inverter_mode_name',
             'InverterFault': 'inverter_fault',
-            'InverterVACOut': 'inverter_vac_out',
-            'InverterAACOut': 'inverter_aac_out',
+
+            # Voltage aggregates
             'Invertervdc': 'inverter_vdc',
+            'vdc_min': 'inverter_vdc_min',
+            'vdc_max': 'inverter_vdc_max',
+
+            'InverterVACOut': 'inverter_vac_out',
+            'VACout_min': 'inverter_vac_out_min',
+            'VACout_max': 'inverter_vac_out_max',
+
+            'VACin': 'inverter_vac_in',
+            'VACin_min': 'inverter_vac_in_min',
+            'VACin_max': 'inverter_vac_in_max',
+
+            # Current aggregates
+            'InverterAACOut': 'inverter_aac_out',
+            'AACout_min': 'inverter_aac_out_min',
+            'AACout_max': 'inverter_aac_out_max',
+
+            'AACin': 'inverter_aac_in',
+            'AACin_min': 'inverter_aac_in_min',
+            'AACin_max': 'inverter_aac_in_max',
+
+            # Temperature aggregates
+            'battery_temp_c': 'inverter_battery_temp_c',
+            'battery_temp_min': 'inverter_battery_temp_c_min',
+            'battery_temp_max': 'inverter_battery_temp_c_max',
+
+            'transformer_temp_c': 'inverter_transformer_temp_c',
+            'transformer_temp_min': 'inverter_transformer_temp_c_min',
+            'transformer_temp_max': 'inverter_transformer_temp_c_max',
+
+            'fet_temp_c': 'inverter_fet_temp_c',
+            'fet_temp_min': 'inverter_fet_temp_c_min',
+            'fet_temp_max': 'inverter_fet_temp_c_max',
         },
         'magnum_rs485': {
             'inverter_on': 'inverter_on',
