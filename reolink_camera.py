@@ -106,6 +106,42 @@ class ReolinkCamera:
     async def stop(self) -> None:
         await self.ptz("Stop")
 
+    async def wait_until_settled(
+        self,
+        poll_interval: float = 0.5,
+        stable_reads: int = 2,
+        timeout: float = 10.0,
+    ) -> None:
+        """
+        Block until the PTZ mechanism stops moving (pan/tilt position is
+        unchanged across `stable_reads` consecutive polls), or `timeout`
+        seconds have elapsed, whichever comes first. A large move (e.g.
+        between distant presets) can take longer to settle than a fixed
+        delay would assume, which otherwise risks motion blur in the
+        snapshot taken right after.
+        """
+        last_position = None
+        stable_count = 0
+        elapsed = 0.0
+
+        while elapsed < timeout:
+            await self._api.baichuan.get_ptz_position(self.channel)
+            position = (
+                self._api.ptz_pan_position(self.channel),
+                self._api.ptz_tilt_position(self.channel),
+            )
+
+            if position == last_position and position != (None, None):
+                stable_count += 1
+                if stable_count >= stable_reads:
+                    return
+            else:
+                stable_count = 0
+
+            last_position = position
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
     async def get_presets(self) -> dict:
         # Query only presets. A full get_states() fans out concurrent requests,
         # which can race during the initial UDP session with a battery camera.
