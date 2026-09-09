@@ -6,7 +6,6 @@ import mysql.connector
 import board
 import os
 import logging
-import adafruit_sht31d
 import minimalmodbus
 import argparse
 import requests
@@ -18,6 +17,9 @@ import json
 from pathlib import Path
 from email.message import EmailMessage
 from magnum.magnum import Magnum
+from sht45_driver import SHT45
+from ina228_driver import INA228
+from ds18b20_driver import DS18B20
 
 ALERT_STATE_FILE = Path('/opt/cabinpython/last_battery_alert.json')
 
@@ -131,25 +133,69 @@ def notify_if_low_battery(config, measurements):
     except Exception:
         logging.exception("Error in notify_if_low_battery")
 
-def get_sht31():
+def get_sht45():
     """
-    Get the temperature and humidity from the SHT31 sensor.
+    Get the temperature and humidity from the SHT45 sensor.
 
     Returns:
         dict: A dictionary containing the temperature in Celsius, temperature in Fahrenheit, and humidity.
     """
-    # Get the temperature and humidity from the SHT31 sensor
     try:
-        i2c = board.I2C()  # uses board.SCL and board.SDA
-        sensor = adafruit_sht31d.SHT31D(i2c)
-        int_c = sensor.temperature
-        humidity = sensor.relative_humidity
+        i2c = board.I2C()
+        sensor = SHT45(i2c)
+        int_c, humidity = sensor.read_measurement()
         # Convert int_c from Celsius to Fahrenheit
         int_f = (int_c * 9/5) + 32
         return {'int_c': int_c, 'int_f': int_f, 'humidity': humidity}
     except Exception:
-        logging.exception("Error reading from SHT31 sensor")
+        logging.exception("Error reading from SHT45 sensor")
         return {'int_c': None, 'int_f': None, 'humidity': None}
+
+def get_power_monitor():
+    """
+    Get DC power system measurements from the INA228 sensor.
+
+    Returns:
+        dict: A dictionary containing bus voltage, current, power, and shunt voltage.
+    """
+    try:
+        i2c = board.I2C()
+        sensor = INA228(i2c, address=0x40, shunt_resistor=0.015)
+        bus_voltage = sensor.get_bus_voltage()
+        current = sensor.get_current()
+        power = sensor.get_power()
+        shunt_voltage = sensor.get_shunt_voltage()
+
+        return {
+            'dc_bus_voltage': bus_voltage,
+            'dc_current': current,
+            'dc_power': power,
+            'dc_shunt_voltage': shunt_voltage
+        }
+    except Exception:
+        logging.exception("Error reading from INA228 power monitor")
+        return {
+            'dc_bus_voltage': None,
+            'dc_current': None,
+            'dc_power': None,
+            'dc_shunt_voltage': None
+        }
+
+def get_basement_temperature():
+    """
+    Get the basement temperature from the DS18B20 sensor.
+
+    Returns:
+        dict: A dictionary containing the basement temperature in Celsius and Fahrenheit.
+    """
+    try:
+        sensor = DS18B20()
+        basement_c = sensor.get_temperature_c()
+        basement_f = sensor.get_temperature_f()
+        return {'basement_c': basement_c, 'basement_f': basement_f}
+    except Exception:
+        logging.exception("Error reading from DS18B20 sensor")
+        return {'basement_c': None, 'basement_f': None}
 
 def get_inverter_data(config):
     """
@@ -286,8 +332,9 @@ def insert_measurement_to_database(current_time, config, measurements):
                "BatteryState, ChargeState, ClassicState, DispavgVbatt, DispavgVpv, kWHours, Watts, "
                "int_c, int_f, humidity, Ext_F, inHg, wind_avg, wind_gust, wind_direction, illuminance, "
                "uv, solar_radiation, rain, avg_strike_distance, strike_count, weather_battery, "
-               "daily_accumulation, Ext_humidity, InverterOn, InverterMode, InverterFault, InverterVACOut, InverterAACOut) "
-               "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+               "daily_accumulation, Ext_humidity, InverterOn, InverterMode, InverterFault, InverterVACOut, InverterAACOut, "
+               "dc_bus_voltage, dc_current, dc_power, dc_shunt_voltage, basement_c, basement_f) "
+               "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
 
         # Use .get() to avoid KeyError if some sensor data is missing
         values = (
@@ -329,7 +376,13 @@ def insert_measurement_to_database(current_time, config, measurements):
             measurements.get('InverterMode'),
             measurements.get('InverterFault'),
             measurements.get('InverterVACOut'),
-            measurements.get('InverterAACOut')
+            measurements.get('InverterAACOut'),
+            measurements.get('dc_bus_voltage'),
+            measurements.get('dc_current'),
+            measurements.get('dc_power'),
+            measurements.get('dc_shunt_voltage'),
+            measurements.get('basement_c'),
+            measurements.get('basement_f')
         )
         cursor.execute(sql, values)
         mydb.commit()
@@ -514,8 +567,14 @@ def main(argv=None):
     logging.info("Starting measurement capture at %s", current_time)
 
     # Collect sensor data
-    logging.debug("Reading SHT31 sensor...")
-    sht31 = get_sht31()
+    logging.debug("Reading SHT45 sensor...")
+    sht45 = get_sht45()
+
+    logging.debug("Reading INA228 power monitor...")
+    power_data = get_power_monitor()
+
+    logging.debug("Reading DS18B20 basement temperature...")
+    basement_data = get_basement_temperature()
 
     logging.debug("Reading solar charge controller...")
     solar_data = get_solar_data(config)
@@ -527,7 +586,7 @@ def main(argv=None):
     inverter_data = get_inverter_data(config)
 
     # Merge all sensor data into a single dictionary
-    all_data = {**sht31, **solar_data, **conditions, **inverter_data}
+    all_data = {**sht45, **power_data, **basement_data, **solar_data, **conditions, **inverter_data}
 
     # Log key metrics for monitoring
     logging.info("Battery: %.2fV, Solar: %dW, Indoor: %.1fF/%.0f%%, Outdoor: %.1fF",

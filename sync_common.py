@@ -140,9 +140,18 @@ def convert_measurement_to_api_format(record: Dict) -> Dict:
         "pvInputCurrent": record.get('PvInputCurrent'),
         "vocLastMeasured": record.get('VocLastMeasured'),
         "watts": record.get('Watts'),
-        # Indoor sensor data
+        # Indoor sensor data (SHT45)
         "intF": record.get('Int_F'),
+        #"intC": record.get('int_c'),
         "humidity": record.get('Humidity'),
+        # DC Power Monitor data (INA228)
+        "dcBusVoltage": record.get('dc_bus_voltage'),
+        "dcCurrent": record.get('dc_current'),
+        "dcPower": record.get('dc_power'),
+        "dcShuntVoltage": record.get('dc_shunt_voltage'),
+        # Basement temperature (DS18B20)
+        "basementF": record.get('basement_f'),
+        "basementC": record.get('basement_c'),
         # External weather data
         "avgStrikeDistance": record.get('avg_strike_distance'),
         "dailyAccumulation": record.get('daily_accumulation'),
