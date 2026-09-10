@@ -108,15 +108,16 @@ def mark_as_synced(config: configparser.ConfigParser, record_date) -> bool:
         return False
 
 
-def convert_measurement_to_api_format(record: Dict) -> Dict:
+def convert_measurement_to_d1_row(record: Dict) -> Dict:
     """
-    Convert a database record to the API's expected format based on OpenAPI spec.
+    Convert a database record to the row format expected by the Cloudflare D1
+    `measurements` table (flat structure with camelCase column names).
 
     Args:
         record: Database record dictionary
 
     Returns:
-        Dictionary in API format (flat structure with camelCase fields)
+        Dictionary keyed by D1 column name
     """
     # Convert datetime to ISO format string if needed
     date_value = record.get('Date')
@@ -178,57 +179,122 @@ def convert_measurement_to_api_format(record: Dict) -> Dict:
     return {k: v for k, v in payload.items() if v is not None}
 
 
-def send_to_api(
+# Columns of the Cloudflare D1 `measurements` table, in the order bound to
+# the INSERT statement's positional (?) parameters. Must match the D1 schema.
+D1_MEASUREMENT_COLUMNS = [
+    "date",
+    "ampHours",
+    "avgStrikeDistance",
+    "batteryState",
+    "chargeState",
+    "classicState",
+    "dailyAccumulation",
+    "dispavgVbatt",
+    "dispavgVpv",
+    "extF",
+    "extHumidity",
+    "humidity",
+    "ibattDisplay",
+    "illuminance",
+    "inHg",
+    "intF",
+    "inverterAacOut",
+    "inverterFault",
+    "inverterMode",
+    "inverterOn",
+    "inverterVacOut",
+    "kwhours",
+    "niteMinutesNoPwr",
+    "pvInputCurrent",
+    "rain",
+    "solarRadiation",
+    "strikeCount",
+    "uv",
+    "vocLastMeasured",
+    "watts",
+    "windAvg",
+    "windDirection",
+    "windGust",
+    "basementC",
+    "basementF",
+    "dcShuntVoltage",
+    "dcPower",
+    "dcBusVoltage",
+    "dcCurrent",
+]
+
+
+def insert_measurements_to_d1(
     measurements: List[Dict],
-    api_url: str,
-    client_id: str,
-    client_secret: str,
+    account_id: str,
+    database_id: str,
+    api_token: str,
     timeout: int = 30
 ) -> bool:
     """
-    Send measurements to the Cloudflare-protected API.
+    Insert measurement rows directly into Cloudflare D1 via the D1 HTTP API,
+    bypassing any intermediate Worker/REST API.
+
+    All rows are sent as a single batch, which D1 executes atomically.
 
     Args:
-        measurements: List of measurement data in API format
-        api_url: API endpoint URL
-        client_id: Cloudflare Access Client ID
-        client_secret: Cloudflare Access Client Secret
+        measurements: List of rows in D1 format (see convert_measurement_to_d1_row)
+        account_id: Cloudflare account ID
+        database_id: D1 database UUID
+        api_token: Cloudflare API token scoped with D1 edit permission
         timeout: Request timeout in seconds
 
     Returns:
         True if successful, False otherwise
     """
-    try:
-        headers = {
-            'CF-Access-Client-Id': client_id,
-            'CF-Access-Client-Secret': client_secret,
-            'Content-Type': 'application/json'
-        }
-
-        # Wrap measurements in records array as per OpenAPI spec
-        payload = {
-            'records': measurements
-        }
-
-        response = requests.post(
-            api_url,
-            json=payload,
-            headers=headers,
-            timeout=timeout
-        )
-
-        response.raise_for_status()
-        result = response.json()
-        logging.info(
-            "Successfully sent to API: %s inserted out of %s total",
-            result.get('inserted', 0),
-            result.get('total', 0)
-        )
+    if not measurements:
         return True
 
+    columns_sql = ", ".join(D1_MEASUREMENT_COLUMNS)
+    placeholders = ", ".join(["?"] * len(D1_MEASUREMENT_COLUMNS))
+    insert_sql = f"INSERT INTO measurements ({columns_sql}) VALUES ({placeholders})"
+
+    batch = [
+        {
+            "sql": insert_sql,
+            "params": [row.get(col) for col in D1_MEASUREMENT_COLUMNS]
+        }
+        for row in measurements
+    ]
+
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/{database_id}/query"
+    headers = {
+        "Authorization": f"Bearer {api_token}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(url, json={"batch": batch}, headers=headers, timeout=timeout)
+        response.raise_for_status()
     except requests.exceptions.RequestException:
-        logging.exception("Error sending measurements to API")
+        logging.exception("Error connecting to Cloudflare D1 API")
         return False
+
+    try:
+        result = response.json()
+    except ValueError:
+        logging.exception("Error parsing Cloudflare D1 API response")
+        return False
+
+    if not result.get("success"):
+        logging.error("Cloudflare D1 API returned errors: %s", result.get("errors"))
+        return False
+
+    rows_written = sum(
+        statement_result.get("meta", {}).get("rows_written", 0)
+        for statement_result in result.get("result", [])
+    )
+    logging.info(
+        "Successfully inserted %d measurement(s) into D1 (%d rows written)",
+        len(measurements),
+        rows_written,
+    )
+    return True
 
 
 def sync_unsynced_records(config: configparser.ConfigParser, batch_size: int = 10) -> tuple:
@@ -246,14 +312,13 @@ def sync_unsynced_records(config: configparser.ConfigParser, batch_size: int = 1
         Tuple of (total_synced, total_failed)
     """
     try:
-        # Get Cloudflare credentials from config file
-        client_id = config.get('CloudflareAccess', 'client_id')
-        client_secret = config.get('CloudflareAccess', 'client_secret')
-        api_url = config.get('CloudflareAccess', 'api_url',
-                            fallback='https://cabinpi.com/api/sensors/ingest')
+        # Get Cloudflare D1 credentials from config file
+        account_id = config.get('CloudflareD1', 'account_id')
+        database_id = config.get('CloudflareD1', 'database_id')
+        api_token = config.get('CloudflareD1', 'api_token')
     except (configparser.NoSectionError, configparser.NoOptionError):
         logging.warning(
-            "CloudflareAccess section not configured, skipping remote sync"
+            "CloudflareD1 section not configured, skipping remote sync"
         )
         return (0, 0)
 
@@ -271,9 +336,9 @@ def sync_unsynced_records(config: configparser.ConfigParser, batch_size: int = 1
 
         logging.info("Found %d unsynced records to sync", len(records))
 
-        # Collect record dates and convert to API format
+        # Collect record dates and convert to D1 row format
         record_dates = []
-        api_measurements = []
+        d1_rows = []
 
         for record in records:
             record_date = record.get('Date')
@@ -281,17 +346,16 @@ def sync_unsynced_records(config: configparser.ConfigParser, batch_size: int = 1
                 logging.warning("Skipping record without Date")
                 continue
 
-            api_payload = convert_measurement_to_api_format(record)
-            api_measurements.append(api_payload)
+            d1_rows.append(convert_measurement_to_d1_row(record))
             record_dates.append(record_date)
 
-        if not api_measurements:
+        if not d1_rows:
             logging.warning("No valid records to sync")
             break
 
-        # Send to API
-        logging.info("Sending %d measurements to remote API", len(api_measurements))
-        if send_to_api(api_measurements, api_url, client_id, client_secret):
+        # Insert directly into D1
+        logging.info("Inserting %d measurements into Cloudflare D1", len(d1_rows))
+        if insert_measurements_to_d1(d1_rows, account_id, database_id, api_token):
             # Mark all records as synced
             success_count = 0
             fail_count = 0
@@ -315,8 +379,8 @@ def sync_unsynced_records(config: configparser.ConfigParser, batch_size: int = 1
             if fail_count > 0:
                 break
         else:
-            # API call failed, stop trying
-            logging.error("Failed to send to API, stopping sync")
+            # D1 insert failed, stop trying
+            logging.error("Failed to insert into D1, stopping sync")
             total_failed += len(record_dates)
             break
 

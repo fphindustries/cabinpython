@@ -40,10 +40,11 @@ battery_low_threshold = 12.0
 battery_recovery_threshold = 12.8
 alert_cooldown_minutes = 1440
 
-[CloudflareAccess]
-client_id=your-cf-access-client-id.access
-client_secret=your-cf-access-client-secret
-api_url=https://example.com/api/sensors/ingest
+[CloudflareD1]
+# API token needs "D1:Edit" permission on the account
+account_id=your-cf-account-id
+database_id=your-d1-database-uuid
+api_token=your-cf-api-token
 
 [Reolink]
 host=192.168.1.100

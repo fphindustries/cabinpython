@@ -1,9 +1,10 @@
 #!/opt/cabinpython/env/bin/python3
 """
-Sync sensor measurements from local MariaDB to Cloudflare-protected API.
+Sync sensor measurements from local MariaDB directly into Cloudflare D1.
 
-This script reads unsynced measurements from the database and sends them
-to the remote API endpoint, marking them as synced upon successful transmission.
+This script reads unsynced measurements from the database and inserts them
+directly into the Cloudflare D1 `measurements` table via the D1 HTTP API,
+marking them as synced upon successful transmission.
 """
 
 import sys
@@ -13,22 +14,22 @@ import configparser
 from sync_common import (
     get_unsynced_measurements,
     mark_as_synced,
-    convert_measurement_to_api_format,
-    send_to_api
+    convert_measurement_to_d1_row,
+    insert_measurements_to_d1
 )
 
 
-def sync_all_records(config: configparser.ConfigParser, batch_size: int, client_id: str,
-                     client_secret: str, api_url: str, test_mode: bool = False) -> tuple:
+def sync_all_records(config: configparser.ConfigParser, batch_size: int, account_id: str,
+                     database_id: str, api_token: str, test_mode: bool = False) -> tuple:
     """
-    Sync all unsynced records to the remote API in batches.
+    Sync all unsynced records directly into Cloudflare D1 in batches.
 
     Args:
         config: Configuration object with database credentials
         batch_size: Number of records to process per batch
-        client_id: Cloudflare Access Client ID
-        client_secret: Cloudflare Access Client Secret
-        api_url: API endpoint URL
+        account_id: Cloudflare account ID
+        database_id: Cloudflare D1 database UUID
+        api_token: Cloudflare API token scoped with D1 edit permission
         test_mode: If True, only process one batch
 
     Returns:
@@ -53,9 +54,9 @@ def sync_all_records(config: configparser.ConfigParser, batch_size: int, client_
 
         logging.info("Batch %d: Found %d unsynced measurements", batch_number, len(records))
 
-        # Collect record dates (primary keys) and convert to API format
+        # Collect record dates (primary keys) and convert to D1 row format
         record_dates = []
-        api_measurements = []
+        d1_rows = []
 
         for record in records:
             record_date = record.get('Date')
@@ -63,18 +64,16 @@ def sync_all_records(config: configparser.ConfigParser, batch_size: int, client_
                 logging.warning("Skipping record without Date: %s", record)
                 continue
 
-            # Convert to API format
-            api_payload = convert_measurement_to_api_format(record)
-            api_measurements.append(api_payload)
+            d1_rows.append(convert_measurement_to_d1_row(record))
             record_dates.append(record_date)
 
-        if not api_measurements:
+        if not d1_rows:
             logging.warning("No valid records to sync in this batch")
             break
 
-        # Send all measurements in one batch
-        logging.info("Batch %d: Sending %d measurements to API", batch_number, len(api_measurements))
-        if send_to_api(api_measurements, api_url, client_id, client_secret):
+        # Insert all measurements in one batch
+        logging.info("Batch %d: Inserting %d measurements into D1", batch_number, len(d1_rows))
+        if insert_measurements_to_d1(d1_rows, account_id, database_id, api_token):
             # Mark all records as synced
             success_count = 0
             fail_count = 0
@@ -97,7 +96,7 @@ def sync_all_records(config: configparser.ConfigParser, batch_size: int, client_
                 len(record_dates)
             )
         else:
-            logging.error("Batch %d: Failed to send measurements to API", batch_number)
+            logging.error("Batch %d: Failed to insert measurements into D1", batch_number)
             total_failed += len(record_dates)
 
         # In test mode, only process one batch
@@ -116,7 +115,7 @@ def main(argv=None):
     )
 
     parser = argparse.ArgumentParser(
-        description='Sync sensor measurements to Cloudflare-protected API'
+        description='Sync sensor measurements directly into Cloudflare D1'
     )
     parser.add_argument(
         '--config',
@@ -130,11 +129,6 @@ def main(argv=None):
         help='Number of records to process per run (default: 10)'
     )
     parser.add_argument(
-        '--api-url',
-        default='https://cabinpi.com/api/sensors/ingest',
-        help='API endpoint URL'
-    )
-    parser.add_argument(
         '--test',
         action='store_true',
         help='Test mode: only send 1 record and exit'
@@ -144,15 +138,19 @@ def main(argv=None):
 
     # Load configuration
     config = configparser.ConfigParser()
-    config.read(args.config)
+    if not config.read(args.config):
+        logging.error("Could not read configuration file: %s", args.config)
+        sys.exit(1)
 
-    # Get Cloudflare credentials from config file
+    # Get Cloudflare D1 credentials from config file
     try:
-        client_id = config.get('CloudflareAccess', 'client_id')
-        client_secret = config.get('CloudflareAccess', 'client_secret')
+        account_id = config.get('CloudflareD1', 'account_id')
+        database_id = config.get('CloudflareD1', 'database_id')
+        api_token = config.get('CloudflareD1', 'api_token')
     except (configparser.NoSectionError, configparser.NoOptionError):
         logging.error(
-            "CloudflareAccess section with client_id and client_secret must be defined in config file"
+            "CloudflareD1 section with account_id, database_id and api_token "
+            "must be defined in config file"
         )
         sys.exit(1)
 
@@ -161,7 +159,7 @@ def main(argv=None):
 
     # Sync all records
     total_synced, total_failed, batch_count = sync_all_records(
-        config, batch_size, client_id, client_secret, args.api_url, args.test
+        config, batch_size, account_id, database_id, api_token, args.test
     )
 
     # Final summary
