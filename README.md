@@ -16,7 +16,7 @@ All data is stored locally in MariaDB and synchronized to a remote Cloudflare-pr
 ## System Architecture
 
 ```
-Sensors → capture_measurements.py → Local MariaDB → sync_to_cloudflare.py → Remote API
+Sensors → capture_measurements.py → Local MariaDB → sync_to_cloudflare.py → Cloudflare D1
                                           ↓
                                    Email Alerts
 ```
@@ -59,7 +59,7 @@ Main data collection script that runs every 5 minutes (typically via cron).
 
 ### sync_to_cloudflare.py
 
-Dedicated synchronization script for syncing all unsynced records to the remote API.
+Dedicated synchronization script for syncing all unsynced records directly into Cloudflare D1.
 
 **Functions:**
 - Fetches all records where `synced = 0` from the database
@@ -111,8 +111,8 @@ Captures photos during daylight hours only.
 Shared library module containing common functions used by both `capture_measurements.py` and `sync_to_cloudflare.py`:
 - `get_unsynced_measurements()` - Fetches unsynced records from database
 - `mark_as_synced()` - Marks records as synced
-- `convert_measurement_to_api_format()` - Converts DB records to API format
-- `send_to_api()` - Sends measurements to Cloudflare API
+- `convert_measurement_to_d1_row()` - Converts DB records to Cloudflare D1 row format
+- `insert_measurements_to_d1()` - Inserts measurements directly into Cloudflare D1
 - `sync_unsynced_records()` - High-level sync function
 
 ## Configuration
@@ -163,11 +163,11 @@ battery_recovery_threshold = 12.8
 # Cooldown period in minutes (prevents alert spam)
 alert_cooldown_minutes = 1440
 
-[CloudflareAccess]
-# Cloudflare Access service token for API authentication
-client_id=your-client-id.access
-client_secret=your-client-secret
-api_url=https://website.com/api/sensors/ingest
+[CloudflareD1]
+# Cloudflare API token scoped with D1:Edit permission
+account_id=your-cf-account-id
+database_id=your-d1-database-uuid
+api_token=your-cf-api-token
 ```
 
 ## Database Setup
@@ -247,35 +247,22 @@ The system uses two USB-to-serial adapters:
 
 Using `/dev/serial/by-id/` paths ensures devices don't swap if USB ports change.
 
-## API Integration
+## Cloudflare D1 Integration
 
-The system sends data to a Cloudflare-protected API endpoint using service token authentication.
+The system writes measurement rows directly into a Cloudflare D1 database using
+[D1's HTTP query API](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/query/) —
+there is no intermediate Worker or REST API in between.
 
-### API Request Format
-
-```json
-{
-  "records": [
-    {
-      "date": "2025-12-06T10:30:00-08:00",
-      "dispavgVbatt": 13.2,
-      "watts": 250,
-      "intF": 68.5,
-      "humidity": 45.2,
-      "extF": 55.3,
-      ...
-    }
-  ]
-}
-```
+Records are inserted as a batch (one `INSERT` statement per record, executed
+atomically by D1) into the `measurements` table, whose columns match the
+camelCase field names produced by `convert_measurement_to_d1_row()` in
+`sync_common.py`.
 
 ### Authentication
 
-Uses Cloudflare Access headers:
-- `CF-Access-Client-Id`: Service token client ID
-- `CF-Access-Client-Secret`: Service token secret
-
-See `openapi.yaml` for full API specification.
+Requests are authenticated with a Cloudflare API token (`Authorization: Bearer <token>`)
+scoped to `D1:Edit` on the target account, configured via the `[CloudflareD1]`
+section of `config.ini`.
 
 ## Monitoring and Logging
 
@@ -319,9 +306,9 @@ The system logs important metrics on each run:
 
 ### Sync failing
 
-1. Test API connectivity: `./sync_to_cloudflare.py --test`
-2. Verify Cloudflare credentials in config.ini
-3. Check network connectivity: `ping cabinpi.com`
+1. Test D1 connectivity: `./sync_to_cloudflare.py --test`
+2. Verify the `[CloudflareD1]` credentials in config.ini (account_id, database_id, api_token)
+3. Check network connectivity: `ping api.cloudflare.com`
 4. Review sync logs for error details
 
 ### Database errors
@@ -366,9 +353,9 @@ Alert state is persisted in `/opt/cabinpython/last_battery_alert.json`.
 
 1. Create a new `get_<sensor>_data()` function in `capture_measurements.py`
 2. Add sensor data to the `all_data` dictionary merge
-3. Update the database schema to include new columns
-4. Update `convert_measurement_to_api_format()` in `sync_common.py`
-5. Update the OpenAPI spec if syncing to remote API
+3. Update the local database schema to include new columns
+4. Add the new column to the Cloudflare D1 `measurements` table
+5. Update `convert_measurement_to_d1_row()` and `D1_MEASUREMENT_COLUMNS` in `sync_common.py`
 
 ## License
 
